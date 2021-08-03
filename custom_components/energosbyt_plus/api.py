@@ -858,7 +858,7 @@ class Account(_BaseDataItem):
     indications_submission_complete: bool = attr.ib()
     has_meters: bool = attr.ib()
     days_until_submission: int = attr.ib()
-    services: str = attr.ib()
+    services_text: str = attr.ib()
     services_count: int = attr.ib()
     owner_id: str = attr.ib()
 
@@ -884,10 +884,14 @@ class Account(_BaseDataItem):
             indications_submission_complete=data["all_meters_sent"],
             has_meters=data["has_meters"],
             days_until_submission=days_until_submission,
-            services=data["services"],
+            services_text=data["services"],
             services_count=int(data["services_count"]),
             owner_id=data["owner_id"],
         )
+
+    @property
+    def services(self) -> Tuple[str, ...]:
+        return tuple(map(str.strip, self.services_text.split(";")))
 
     async def async_get_balance(self):
         if self.api is None:

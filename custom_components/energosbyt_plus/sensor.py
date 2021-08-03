@@ -74,6 +74,7 @@ from custom_components.energosbyt_plus.const import (
     ATTR_PREVIOUS,
     ATTR_RECALCULATIONS,
     ATTR_REMAINING_DAYS,
+    ATTR_SERVICES,
     ATTR_SERVICE_NAME,
     ATTR_SERVICE_TYPE,
     ATTR_START,
@@ -231,6 +232,7 @@ class EnergosbytPlusAccount(EnergosbytPlusEntity):
             "indications_submission_complete": account.indications_submission_complete,
             "has_meters": account.has_meters,
             "days_until_submission": account.days_until_submission,
+            ATTR_SERVICES: account.services,
         }
 
         return attributes
