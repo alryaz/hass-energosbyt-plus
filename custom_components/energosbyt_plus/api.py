@@ -6,6 +6,7 @@ from typing import (
     Any,
     Callable,
     ClassVar,
+    Final,
     Hashable,
     Iterable,
     Mapping,
@@ -45,6 +46,10 @@ class MethodRequiresAPI(EnergosbytPlusException):
     pass
 
 
+LOGIN_TYPE_CONTACT: Final = "contact"
+LOGIN_TYPE_ACCOUNT: Final = "account"
+
+
 class EnergosbytPlusAPI:
     BASE_LK_URL: ClassVar[str] = "https://lkm.esplus.ru"
 
@@ -54,14 +59,8 @@ class EnergosbytPlusAPI:
         username: str,
         password: str,
         session: Optional[aiohttp.ClientSession] = None,
+        login_type: Optional[str] = None,
     ) -> None:
-        if "@" in username:
-            login_type = "contact"
-        elif username.isnumeric():
-            login_type = "account"
-        else:
-            raise EnergosbytPlusException("Invalid username provided")
-
         self._branch_code = branch_code
         self._username = username
         self._password = password
@@ -92,10 +91,6 @@ class EnergosbytPlusAPI:
     @property
     def password(self) -> str:
         return self._password
-
-    @property
-    def login_type(self) -> str:
-        return self._login_type
 
     @property
     def access_token(self) -> Optional[str]:
@@ -129,6 +124,11 @@ class EnergosbytPlusAPI:
 
         async with session.get(cls.BASE_LK_URL + "/api/v1/branches") as response:
             data = await response.json()
+            if data["error"] > 0:
+                raise EnergosbytPlusException(
+                    f"Could not fetch branches (error code: {data['error']})"
+                )
+
             branches = data["content"]["branches"]  # @TODO: handle KeyError gracefully
             return tuple(
                 Branch(
@@ -142,23 +142,57 @@ class EnergosbytPlusAPI:
             )
 
     async def async_authenticate(self) -> None:
-        async with self._session.post(
-            self.BASE_LK_URL + "/api/v1/auth/login",
-            json={
-                "login_type": self._login_type,
-                "login": self._username,
-                "password": self._password,
-                "branch_code": self._branch_code,
-            },
-        ) as response:
-            data = await response.json()
-            user = data["content"]  # @TODO: handle KeyError gracefully
-            self._access_token = user["access_token"]
-            self._access_token_type = user["token_type"]
-            self._refresh_token = user["refresh_token"]
-            self._token_expires_at = time() + user["expires_in"]
+        username = self._username
+        attempt_different_login_type = False
 
-            print(self._access_token)
+        login_type = self._login_type
+
+        if login_type is None:
+            if username.isnumeric():
+                login_type = LOGIN_TYPE_ACCOUNT
+                attempt_different_login_type = True
+            else:
+                login_type = LOGIN_TYPE_CONTACT
+
+        request_url = "/api/v1/auth/login"
+        request_json = {
+            "login_type": login_type,
+            "login": self._username,
+            "password": self._password,
+            "branch_code": self._branch_code,
+        }
+
+        try:
+            content = await self._async_api_post_request(
+                request_url,
+                authenticated=False,
+                json=request_json,
+            )
+
+        except BaseException as e:
+            if attempt_different_login_type is False:
+                _LOGGER.exception(f"Error during authentication: {e}")
+                raise EnergosbytPlusException(f"Error during authentication: {e}")
+
+            _LOGGER.warning(
+                f"Error during authentication with login_type={login_type}, "
+                f"reattempting with login_type={LOGIN_TYPE_CONTACT}"
+            )
+            login_type = LOGIN_TYPE_CONTACT
+            request_json["login_type"] = login_type
+            content = await self._async_api_post_request(
+                request_url,
+                authenticated=False,
+                json=request_json,
+            )
+
+        if self._login_type is None:
+            self._login_type = login_type
+
+        self._access_token = content["access_token"]
+        self._access_token_type = content["token_type"]
+        self._refresh_token = content["refresh_token"]
+        self._token_expires_at = time() + content["expires_in"]
 
     def _get_request_headers(
         self, authenticated: bool, headers: Optional[Mapping[str, Any]]
