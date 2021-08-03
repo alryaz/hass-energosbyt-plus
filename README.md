@@ -4,13 +4,13 @@ _ЛК &#xab;ЭнергосбыТ Плюс&#xbb;_ для _Home Assistant_
 > Предоставление информации о текущем состоянии ваших лицевых счетов в ЛК ЭнергосбыТ Плюс.
 > Передача показаний по счётчикам.
 >
-> TNS Energo personal cabinet information and status retrieval, with meter indications submission capabilities.
+> EnergosbyT Plus personal cabinet information and status retrieval, with meter indications submission capabilities.
 > 
->[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+> [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 > [![Лицензия](https://img.shields.io/badge/%D0%9B%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 > [![Поддержка](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D1%82%D1%81%D1%8F%3F-%D0%B4%D0%B0-green.svg)](https://github.com/alryaz/hass-energosbyt-plus/graphs/commit-activity)
 >
->[![Пожертвование Yandex](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
+> [![Пожертвование Yandex](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 > [![Пожертвование PayPal](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 
 > ❗ **ВНИМАНИЕ** ❗ На данный момент интеграция не поддерживает отправку показаний. Для участия в
@@ -59,7 +59,7 @@ _ЛК &#xab;ЭнергосбыТ Плюс&#xbb;_ для _Home Assistant_
 > **⚠️ Не рекомендуется**
 
 ## Конфигурация компонента:
-- Вариант А: Через _Интеграции_ (в поиске - "ЭнергосбыТ Плюс" или "TNS Energo")
+- Вариант А: Через _Интеграции_ (в поиске - "ЭнергосбыТ Плюс" или "EnergosbyT Plus")
 - Вариант Б: YAML
 
 ### Пример конфигурации YAML
