@@ -2,7 +2,6 @@
 Sensor for Energosbyt Plus cabinet.
 Retrieves indications regarding current state of accounts.
 """
-import asyncio
 import logging
 import re
 from abc import abstractmethod
@@ -24,7 +23,14 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_CODE, ATTR_ID, ATTR_NAME, STATE_OK, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_CODE,
+    ATTR_ENTITY_ID,
+    ATTR_ID,
+    ATTR_NAME,
+    STATE_OK,
+    STATE_UNKNOWN,
+)
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import slugify
 
@@ -33,11 +39,15 @@ from custom_components.energosbyt_plus._base import (
     SupportedServicesType,
     make_common_async_setup_entry,
 )
-from custom_components.energosbyt_plus._util import dev_presentation_replacer
+from custom_components.energosbyt_plus._util import (
+    dev_presentation_replacer,
+    with_auto_auth,
+)
 from custom_components.energosbyt_plus.api import (
     Account,
-    AccountCharges,
     AccountBalance,
+    AccountCharges,
+    EnergosbytPlusException,
     Meter,
     MeterCharacteristics,
     ServiceCharge,
@@ -48,7 +58,9 @@ from custom_components.energosbyt_plus.const import (
     ATTR_ACCURACY,
     ATTR_BENEFITS,
     ATTR_BRAND,
+    ATTR_CALL_PARAMS,
     ATTR_CHARGED,
+    ATTR_COMMENT,
     ATTR_COST,
     ATTR_CURRENT,
     ATTR_DIGITS,
@@ -82,6 +94,7 @@ from custom_components.energosbyt_plus.const import (
     ATTR_SUBMIT_PERIOD_ACTIVE,
     ATTR_SUBMIT_PERIOD_END,
     ATTR_SUBMIT_PERIOD_START,
+    ATTR_SUCCESS,
     ATTR_TODAY,
     ATTR_TOTAL,
     ATTR_TYPE,
@@ -114,8 +127,8 @@ INDICATIONS_SEQUENCE_SCHEMA = vol.All(
     lambda x: dict(map(lambda y: ("t" + str(y[0]), y[1]), enumerate(x, start=1))),
 )
 
-
-CALCULATE_PUSH_INDICATIONS_SCHEMA = {
+SERVICE_PUSH_INDICATIONS: Final = "push_indications"
+SERVICE_PUSH_INDICATIONS_SCHEMA: Final = {
     vol.Required(ATTR_INDICATIONS): vol.Any(
         vol.All(
             cv.string,
@@ -134,20 +147,10 @@ CALCULATE_PUSH_INDICATIONS_SCHEMA = {
     ),
 }
 
-SERVICE_PUSH_INDICATIONS: Final = "push_indications"
-SERVICE_PUSH_INDICATIONS_SCHEMA: Final = CALCULATE_PUSH_INDICATIONS_SCHEMA
-
-SERVICE_CALCULATE_INDICATIONS: Final = "calculate_indications"
-SERVICE_CALCULATE_INDICATIONS_SCHEMA: Final = CALCULATE_PUSH_INDICATIONS_SCHEMA
-
 _SERVICE_SCHEMA_BASE_DATED: Final = {
     vol.Optional(ATTR_START, default=None): vol.Any(vol.Equal(None), cv.datetime),
     vol.Optional(ATTR_END, default=None): vol.Any(vol.Equal(None), cv.datetime),
 }
-
-FEATURE_PUSH_INDICATIONS: Final = 1
-FEATURE_GET_PAYMENTS: Final = FEATURE_PUSH_INDICATIONS * 2
-FEATURE_GET_INVOICES: Final = FEATURE_GET_PAYMENTS * 2
 
 SERVICE_GET_PAYMENTS: Final = "get_payments"
 SERVICE_GET_INVOICES: Final = "get_invoices"
@@ -295,16 +298,20 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     _supported_services: ClassVar[SupportedServicesType] = {
         None: {
-            "push_indications": SERVICE_PUSH_INDICATIONS_SCHEMA,
+            SERVICE_PUSH_INDICATIONS: SERVICE_PUSH_INDICATIONS_SCHEMA,
         },
     }
 
     def __init__(
-        self, *args, meter: Meter, characteristics: MeterCharacteristics, **kwargs
+        self,
+        *args,
+        characteristics: MeterCharacteristics,
+        meter: Optional[Meter] = None,
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self._meter = meter
         self._characteristics = characteristics
+        self._meter = meter
 
         self.entity_id: Optional[str] = f"sensor." + slugify(
             f"{self._account.number}_meter_{self.code}"
@@ -325,25 +332,17 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
         new_meter_entities = []
 
         if account.has_meters:
-            meters, characteristics = await asyncio.gather(
-                account.async_get_meters(),
-                account.api.async_get_meter_characteristics(),
-            )
+            characteristics = await account.api.async_get_meter_characteristics()
 
-            characteristics_dict = {
-                characteristic.id: characteristic for characteristic in characteristics
-            }
-
-            for meter in meters:
-                entity_key = (account.id, meter.id)
+            for characteristic in characteristics:
+                entity_key = (account.id, characteristic.id)
                 try:
                     entity = entities[entity_key]
                 except KeyError:
                     entity = cls(
                         account,
                         account_config,
-                        meter=meter,
-                        characteristics=characteristics_dict[meter.id],
+                        characteristics=characteristic,
                     )
                     entities[entity_key] = entity
                     new_meter_entities.append(entity)
@@ -355,7 +354,7 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     async def async_update_internal(self) -> None:
         meters = await self._account.async_get_meters()
-        meter_id = self._meter.id
+        meter_id = self._characteristics.id
 
         for meter in meters:
             if meter.id == meter_id:
@@ -371,16 +370,19 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     @property
     def code(self) -> str:
-        return self._meter.number
+        return self._characteristics.number
 
     @property
     def unique_id(self) -> str:
         """Return the unique ID of the sensor"""
-        return f"account_{self._account.id}_meter_{self._meter.id}"
+        return f"account_{self._account.id}_meter_{self._characteristics.id}"
 
     @property
     def state(self) -> str:
-        return self._meter.status or STATE_OK
+        meter = self._meter
+        if meter is None:
+            return STATE_UNKNOWN
+        return meter.status or STATE_OK
 
     @property
     def icon(self) -> str:
@@ -392,79 +394,89 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     @property
     def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
-        meter = self._meter
         characteristics = self._characteristics
-        service = meter.service
         dev_presentation_enabled = self.is_dev_presentation_enabled
-
-        submit_period_active = meter.is_submission_period_active
 
         attributes = {
             ATTR_NAME: characteristics.name,
-            ATTR_METER_CODE: meter.number,
-            ATTR_SERVICE_NAME: service.name,
-            ATTR_SERVICE_TYPE: service.code,
-            ATTR_SUBMIT_PERIOD_START: meter.submission_period_start_date.isoformat(),
-            ATTR_SUBMIT_PERIOD_END: meter.submission_period_end_date.isoformat(),
-            ATTR_SUBMIT_PERIOD_ACTIVE: submit_period_active,
-            ATTR_REMAINING_DAYS: (
-                meter.remaining_days_for_submission
-                if submit_period_active
-                else meter.remaining_days_until_submission
-            ),
-            ATTR_MANUFACTURER: characteristics.manufacturer,
-            ATTR_BRAND: characteristics.brand,
-            ATTR_MODEL: characteristics.model,
-            ATTR_TYPE: characteristics.type,
-            ATTR_ACCURACY: characteristics.accuracy_class,
-            ATTR_DIGITS: characteristics.digits,
-            ATTR_INSTALL_DATE: characteristics.installation_date.isoformat(),
-            ATTR_LAST_CHECKUP_DATE: characteristics.last_checkup_date.isoformat(),
-            ATTR_NEXT_CHECKUP_DATE: characteristics.next_checkup_date.isoformat(),
+            ATTR_METER_CODE: characteristics.number,
         }
 
-        # noinspection PyUnresolvedReferences
+        meter = self._meter
+        if meter is not None:
+            service = meter.service
+            submit_period_active = meter.is_submission_period_active
 
-        zones_data = meter.zones
-        if zones_data:
-            last_indications_date = zones_data[0].submitted_date
-            attributes[ATTR_LAST_INDICATIONS_DATE] = (
-                None
-                if last_indications_date is None
-                else last_indications_date.isoformat()
+            attributes.update(
+                {
+                    ATTR_SERVICE_NAME: service.name,
+                    ATTR_SERVICE_TYPE: service.code,
+                    ATTR_SUBMIT_PERIOD_START: meter.submission_period_start_date.isoformat(),
+                    ATTR_SUBMIT_PERIOD_END: meter.submission_period_end_date.isoformat(),
+                    ATTR_SUBMIT_PERIOD_ACTIVE: submit_period_active,
+                    ATTR_REMAINING_DAYS: (
+                        meter.remaining_days_for_submission
+                        if submit_period_active
+                        else meter.remaining_days_until_submission
+                    ),
+                }
             )
 
-            # Add zone information
-            zones = []
-            for zone_data, zone_characteristics in zip(
-                zones_data, characteristics.zones
-            ):
-                zone_attributes = {
-                    ATTR_ID: zone_data.id,
-                    ATTR_SUBMITTED: zone_data.submitted,
-                    ATTR_ACCEPTED: zone_data.accepted,
-                    ATTR_TODAY: zone_data.today,
-                }
+        attributes.update(
+            {
+                ATTR_MANUFACTURER: characteristics.manufacturer,
+                ATTR_BRAND: characteristics.brand,
+                ATTR_MODEL: characteristics.model,
+                ATTR_TYPE: characteristics.type,
+                ATTR_ACCURACY: characteristics.accuracy_class,
+                ATTR_DIGITS: characteristics.digits,
+                ATTR_INSTALL_DATE: characteristics.installation_date.isoformat(),
+                ATTR_LAST_CHECKUP_DATE: characteristics.last_checkup_date.isoformat(),
+                ATTR_NEXT_CHECKUP_DATE: characteristics.next_checkup_date.isoformat(),
+            }
+        )
 
-                current_indication = zone_data.current
-                if current_indication is not None:
-                    zone_attributes[ATTR_CURRENT] = current_indication
+        if meter is not None:
+            zones_data = meter.zones
+            if zones_data:
+                last_indications_date = zones_data[0].submitted_date
+                attributes[ATTR_LAST_INDICATIONS_DATE] = (
+                    None
+                    if last_indications_date is None
+                    else last_indications_date.isoformat()
+                )
 
-                if dev_presentation_enabled:
-                    dev_presentation_replacer(
-                        zone_attributes,
-                        (),
-                        (
-                            ATTR_SUBMITTED,
-                            ATTR_ACCEPTED,
-                            ATTR_TODAY,
-                            ATTR_CURRENT,
-                        ),
-                    )
+                # Add zone information
+                zones = []
+                for zone_data, zone_characteristics in zip(
+                    zones_data, characteristics.zones
+                ):
+                    zone_attributes = {
+                        ATTR_ID: zone_data.id,
+                        ATTR_SUBMITTED: zone_data.submitted,
+                        ATTR_ACCEPTED: zone_data.accepted,
+                        ATTR_TODAY: zone_data.today,
+                    }
 
-                zones.append(zone_attributes)
+                    current_indication = zone_data.current
+                    if current_indication is not None:
+                        zone_attributes[ATTR_CURRENT] = current_indication
 
-            attributes[ATTR_ZONES] = zones
+                    if dev_presentation_enabled:
+                        dev_presentation_replacer(
+                            zone_attributes,
+                            (),
+                            (
+                                ATTR_SUBMITTED,
+                                ATTR_ACCEPTED,
+                                ATTR_TODAY,
+                                ATTR_CURRENT,
+                            ),
+                        )
+
+                    zones.append(zone_attributes)
+
+                attributes[ATTR_ZONES] = zones
 
         if dev_presentation_enabled:
             dev_presentation_replacer(
@@ -484,16 +496,160 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     @property
     def name_format_values(self) -> Mapping[str, Any]:
-        meter = self._meter
-        service = meter.service
-
-        return {
-            FORMAT_VAR_ID: meter.id or "<unknown>",
+        values = {
+            FORMAT_VAR_ID: self._characteristics.id,
             FORMAT_VAR_TYPE_EN: "meter",
             FORMAT_VAR_TYPE_RU: "счётчик",
-            ATTR_SERVICE_NAME: service.name,
-            ATTR_SERVICE_TYPE: service.code,
         }
+
+        meter = self._meter
+        if meter is not None:
+            service = meter.service
+            values[ATTR_SERVICE_NAME] = service.name
+            values[ATTR_SERVICE_TYPE] = service.code
+        else:
+            values[ATTR_SERVICE_NAME] = "<?>"
+            values[ATTR_SERVICE_TYPE] = "<?>"
+
+        return values
+
+    #################################################################################
+    # Additional functionality
+    #################################################################################
+
+    def _fire_callback_event(
+        self,
+        call_data: Mapping[str, Any],
+        event_data: Mapping[str, Any],
+        event_id: str,
+        title: str,
+    ):
+        hass = self.hass
+        comment = event_data.get(ATTR_COMMENT)
+
+        if comment is not None:
+            message = str(comment)
+            comment = "Response comment: " + str(comment)
+        else:
+            comment = "Response comment not provided"
+            message = comment
+
+        _LOGGER.log(
+            logging.INFO if event_data.get(ATTR_SUCCESS) else logging.ERROR,
+            RE_MULTI_SPACES.sub(" ", RE_HTML_TAGS.sub("", comment)),
+        )
+
+        meter_code = self.code
+
+        event_data = {
+            ATTR_ENTITY_ID: self.entity_id,
+            ATTR_METER_CODE: meter_code,
+            ATTR_CALL_PARAMS: dict(call_data),
+            ATTR_SUCCESS: False,
+            ATTR_INDICATIONS: None,
+            ATTR_COMMENT: None,
+            **event_data,
+        }
+
+        _LOGGER.debug("Firing event '%s' with post_fields: %s" % (event_id, event_data))
+
+        hass.bus.async_fire(event_type=event_id, event_data=event_data)
+
+        notification_content: Union[bool, Mapping[str, str]] = call_data[
+            ATTR_NOTIFICATION
+        ]
+
+        if notification_content is not False:
+            payload = {
+                persistent_notification.ATTR_TITLE: title + " - №" + meter_code,
+                persistent_notification.ATTR_NOTIFICATION_ID: event_id
+                + "_"
+                + meter_code,
+                persistent_notification.ATTR_MESSAGE: message,
+            }
+
+            if isinstance(notification_content, Mapping):
+                for key, value in notification_content.items():
+                    payload[key] = str(value).format_map(event_data)
+
+            hass.async_create_task(
+                hass.services.async_call(
+                    persistent_notification.DOMAIN,
+                    persistent_notification.SERVICE_CREATE,
+                    payload,
+                )
+            )
+
+    @staticmethod
+    def _get_real_indications(
+        meter: Meter, call_data: Mapping
+    ) -> Mapping[str, Union[int, float]]:
+        indications: Dict[str, Union[int, float]] = dict(call_data[ATTR_INDICATIONS])
+        meter_zones = meter.zones
+        is_incremental = call_data[ATTR_INCREMENTAL]
+
+        for zone_id in indications.keys():
+            for zone in meter_zones:
+                if zone == zone_id:
+                    if is_incremental:
+                        indications[zone_id] += zone.submitted or zone.accepted or 0.0
+                    continue
+
+            raise ValueError(f"meter zone {zone_id} does not exist")
+
+        return indications
+
+    async def async_service_push_indications(self, **call_data):
+        """
+        Push indications entity service.
+        :param call_data: Parameters for service call
+        :return:
+        """
+        _LOGGER.info(self.log_prefix + "Begin handling indications submission")
+
+        meter = self._meter
+
+        if meter is None:
+            raise Exception("Meter is unavailable")
+
+        event_data = {}
+
+        try:
+            indications = self._get_real_indications(meter, call_data)
+
+            event_data[ATTR_INDICATIONS] = dict(indications)
+
+            await with_auto_auth(
+                meter.api,
+                meter.async_push_indications,
+                **indications,
+                ignore_periods=call_data[ATTR_IGNORE_PERIOD],
+                ignore_values=call_data[ATTR_IGNORE_INDICATIONS],
+            )
+
+        except EnergosbytPlusException as e:
+            event_data[ATTR_COMMENT] = "API error: %s" % e
+            raise
+
+        except BaseException as e:
+            event_data[ATTR_COMMENT] = "Unknown error: %r" % e
+            _LOGGER.error(event_data[ATTR_COMMENT])
+            raise
+
+        else:
+            event_data[ATTR_COMMENT] = "Indications submitted successfully"
+            event_data[ATTR_SUCCESS] = True
+            self.async_schedule_update_ha_state(force_refresh=True)
+
+        finally:
+            self._fire_callback_event(
+                call_data,
+                event_data,
+                DOMAIN + "_" + SERVICE_PUSH_INDICATIONS,
+                "Передача показаний",
+            )
+
+            _LOGGER.info(self.log_prefix + "End handling indications submission")
 
 
 class _EnergosbytPlusChargesEntityBase(EnergosbytPlusEntity):

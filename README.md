@@ -13,9 +13,8 @@ _ЛК &#xab;ЭнергосбыТ Плюс&#xbb;_ для _Home Assistant_
 >[![Пожертвование Yandex](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Yandex-red.svg)](https://money.yandex.ru/to/410012369233217)
 > [![Пожертвование PayPal](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B6%D0%B5%D1%80%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-Paypal-blueviolet.svg)](https://www.paypal.me/alryaz)
 
-> ❗ **ВНИМАНИЕ** ❗ На данный момент интеграция не поддерживает отправку показаний. Для участия в
-> тестировании данного функционала, пожалуйста, свяжитесь с разработчиком, или
-> [откройте issue](https://github.com/alryaz/hass-energosbyt-plus/issues/new).
+> ❗ **ВНИМАНИЕ** ❗ На данный момент функционал передачи показаний находится в экспериментальном
+> режиме. При возникновении проблем, пожалуйста, [откройте issue](https://github.com/alryaz/hass-energosbyt-plus/issues/new).
 
 ## Скриншоты
 
@@ -38,6 +37,10 @@ _ЛК &#xab;ЭнергосбыТ Плюс&#xbb;_ для _Home Assistant_
 <details>
   <summary>Счётчик коммунальных услуг</summary> 
   <img src="https://raw.githubusercontent.com/alryaz/hass-energosbyt-plus/main/images/meter.png" alt="Скриншот: Счётчик коммунальных услуг">
+</details>
+<details>
+  <summary>Служба отправки показаний</summary> 
+  <img src="https://raw.githubusercontent.com/alryaz/hass-energosbyt-plus/main/images/push_indications_service.png" alt="Скриншот: Служба отправки показаний">
 </details>
 
 ## Установка
@@ -189,3 +192,98 @@ energosbyt_plus:
   accounts: ["123123123000", "321321321000", "333222111001"]
 ```
 
+## Использование
+
+### Служба передачи показаний - `energosbyt_plus.push_indications`
+
+Служба передачи показаний позволяет отправлять показания по счётчикам в личный кабинет, и
+имеет следующий набор параметров:
+
+| Название | Описание |
+| --- | --- |
+| `target` | Выборка целевых объектов, для которых требуется передавать показания |
+| `data`.`indications` | Список / именованный массив показаний, передаваемых в ЛК |
+| `data`.`incremental` | Суммирование текущих показаний с передаваемыми |
+| `data`.`ignore_period` | Игнорировать период передачи показаний |
+| `data`.`ignore_values` | Игнорировать ограничения по значениям |
+
+#### Примеры вызова службы
+
+##### 1. Обычная передача показаний
+
+- Например, если передача показаний активна с 15 по 25 число, а сегодня 11, то показания
+  <font color="red">**не будут**</font> отправлены<sup>1</sup>.
+- Например, если текущие, последние или принятые значения по счётчику &ndash; 321, 654 и 987 по зонам
+  _Т1_, _Т2_ и _Т3_ соответственно, то показания <font color="red">**не будут**</font>
+  отправлены<sup>1</sup>.
+  
+```yaml
+service: energosbyt_plus.push_indications
+data:
+  indications: "123, 456, 789"
+target:
+  entity: sensor.1243145122_meter_123456789
+```
+
+... или, с помощью именованного массива:
+
+```yaml
+service: energosbyt_plus.calculate_indications
+data:
+  indications:
+    t1: 123
+    t2: 456
+    t3: 789
+target:
+  entity: sensor.1243145122_meter_123456789
+```
+
+... или, с помощью списка:
+
+```yaml
+service: energosbyt_plus.calculate_indications
+data:
+  indications: [123, 456, 789]
+target:
+  entity: sensor.1243145122_meter_123456789
+```
+
+##### 2. Форсированная передача показаний
+
+Отключение всех ограничений по показаниям.
+
+- Например, если передача показаний активна с 15 по 25 число, а сегодня 11, то показания
+  <font color="green">**будут**</font> отправлены<sup>1</sup>.
+- Например, если текущие, последние или принятые значения по счётчику &ndash; 321, 654 и 987 по зонам
+  _Т1_, _Т2_ и _Т3_ соответственно, то показания <font color="green">**будут**</font>
+  отправлены<sup>1</sup>.
+  
+```yaml
+service: energosbyt_plus.calculate_indications
+data_template:
+  indications: [123, 456, 789]
+  ignore_values: true
+  ignore_periods: true
+target:
+  entity: sensor.1243145122_meter_123456789
+```
+
+##### 3. Сложение показаний
+
+- Например, если передача показаний активна с 15 по 25 число, а сегодня 11, то показания
+  <font color="red">**не будут**</font> отправлены<sup>1</sup>.
+- Например, если текущие, последние или принятые значения по счётчику &ndash; 321, 654 и 987 по зонам
+  _Т1_, _Т2_ и _Т3_ соответственно, то показания <font color="green">**будут**</font>
+  отправлены<sup>1</sup>.
+  
+**Внимание:** в данном примере будут отправлены показания _444_, _1110_ и _1776_,
+а не _123_, _456_ и _789_. 
+  
+```yaml
+service: energosbyt_plus.calculate_indications
+data_template:
+  indications: [123, 456, 789]
+  incremental: true
+target:
+  entity: sensor.1243145122_meter_123456789
+```

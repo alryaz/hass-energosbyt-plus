@@ -11,9 +11,11 @@ from typing import (
     Iterable,
     Mapping,
     Optional,
+    Set,
     Tuple,
     Type,
     TypeVar,
+    Union,
 )
 
 import aiohttp
@@ -42,7 +44,15 @@ class EnergosbytPlusException(Exception):
     pass
 
 
-class MethodRequiresAPI(EnergosbytPlusException):
+class ObjectMissingData(EnergosbytPlusException):
+    pass
+
+
+class MethodRequiresAPI(ObjectMissingData):
+    pass
+
+
+class UnauthenticatedException(EnergosbytPlusException):
     pass
 
 
@@ -114,6 +124,70 @@ class EnergosbytPlusAPI:
     def is_token_expired(self) -> bool:
         return time() > self._token_expires_at
 
+    def _get_request_headers(
+        self, authenticated: bool, headers: Optional[Mapping[str, Any]]
+    ):
+        headers = dict(headers or {})
+        headers["x-requested-from"] = "esb-mobile-app"
+        headers[aiohttp.hdrs.USER_AGENT] = "okhttp/3.12.1"
+
+        if authenticated:
+            if self.is_token_expired is None:
+                # @TODO: add reauthentication
+                raise UnauthenticatedException("account is not authenticated")
+
+            headers[
+                aiohttp.hdrs.AUTHORIZATION
+            ] = f"{self._access_token_type} {self._access_token}"
+
+        return headers
+
+    async def _async_api_post_request(
+        self,
+        sub_url: str,
+        authenticated: bool = True,
+        headers: Optional[Mapping[str, Any]] = None,
+        **kwargs,
+    ) -> Any:
+        request_counter = self._request_counter + 1
+        self._request_counter = request_counter
+
+        kwargs["headers"] = self._get_request_headers(authenticated, headers)
+        _LOGGER.debug(f"[{request_counter}] POST:{sub_url} ({kwargs})")
+
+        async with self._session.post(self.BASE_LK_URL + sub_url, **kwargs) as response:
+            data = await response.json()
+
+            _LOGGER.debug(f"[{request_counter}] R:{data}")
+
+            if data["error"] != 0:
+                raise EnergosbytPlusException(f"request error {data['error']}")
+
+            return data["content"]
+
+    async def _async_api_get_request(
+        self,
+        sub_url: str,
+        authenticated: bool = True,
+        headers: Optional[Mapping[str, Any]] = None,
+        **kwargs,
+    ) -> Any:
+        request_counter = self._request_counter + 1
+        self._request_counter = request_counter
+
+        kwargs["headers"] = self._get_request_headers(authenticated, headers)
+        _LOGGER.debug(f"[{request_counter}] GET:{sub_url} ({kwargs})")
+
+        async with self._session.get(self.BASE_LK_URL + sub_url, **kwargs) as response:
+            data = await response.json()
+
+            _LOGGER.debug(f"[{request_counter}] R:{data}")
+
+            if data["error"] != 0:
+                raise EnergosbytPlusException(f"request error {data['error']}")
+
+            return data["content"]
+
     @classmethod
     async def async_get_branches(
         cls, session: Optional[aiohttp.ClientSession] = None
@@ -124,7 +198,7 @@ class EnergosbytPlusAPI:
 
         async with session.get(cls.BASE_LK_URL + "/api/v1/branches") as response:
             data = await response.json()
-            if data["error"] > 0:
+            if data["error"]:
                 raise EnergosbytPlusException(
                     f"Could not fetch branches (error code: {data['error']})"
                 )
@@ -193,68 +267,6 @@ class EnergosbytPlusAPI:
         self._access_token_type = content["token_type"]
         self._refresh_token = content["refresh_token"]
         self._token_expires_at = time() + content["expires_in"]
-
-    def _get_request_headers(
-        self, authenticated: bool, headers: Optional[Mapping[str, Any]]
-    ):
-        headers = dict(headers or {})
-        headers["x-requested-from"] = "esb-mobile-app"
-        headers[aiohttp.hdrs.USER_AGENT] = "okhttp/3.12.1"
-
-        if authenticated:
-            if self._access_token is None:
-                raise EnergosbytPlusException("account is not authenticated")
-            headers[
-                aiohttp.hdrs.AUTHORIZATION
-            ] = f"{self._access_token_type} {self._access_token}"
-
-        return headers
-
-    async def _async_api_post_request(
-        self,
-        sub_url: str,
-        authenticated: bool = True,
-        headers: Optional[Mapping[str, Any]] = None,
-        **kwargs,
-    ) -> Any:
-        request_counter = self._request_counter + 1
-        self._request_counter = request_counter
-
-        kwargs["headers"] = self._get_request_headers(authenticated, headers)
-        _LOGGER.debug(f"[{request_counter}] POST:{sub_url} ({kwargs})")
-
-        async with self._session.post(self.BASE_LK_URL + sub_url, **kwargs) as response:
-            data = await response.json()
-
-            _LOGGER.debug(f"[{request_counter}] R:{data}")
-
-            if data["error"] != 0:
-                raise EnergosbytPlusException(f"request error {data['error']}")
-
-            return data["content"]
-
-    async def _async_api_get_request(
-        self,
-        sub_url: str,
-        authenticated: bool = True,
-        headers: Optional[Mapping[str, Any]] = None,
-        **kwargs,
-    ) -> Any:
-        request_counter = self._request_counter + 1
-        self._request_counter = request_counter
-
-        kwargs["headers"] = self._get_request_headers(authenticated, headers)
-        _LOGGER.debug(f"[{request_counter}] GET:{sub_url} ({kwargs})")
-
-        async with self._session.get(self.BASE_LK_URL + sub_url, **kwargs) as response:
-            data = await response.json()
-
-            _LOGGER.debug(f"[{request_counter}] R:{data}")
-
-            if data["error"] != 0:
-                raise EnergosbytPlusException(f"request error {data['error']}")
-
-            return data["content"]
 
     async def async_get_residential_objects(self) -> Tuple["ResidentialObject", ...]:
         content = await self._async_api_get_request(
@@ -338,7 +350,9 @@ class EnergosbytPlusAPI:
             },
         )
 
-        return Meter.de_json_list(content["meters"].values(), self)
+        return Meter.de_json_list(
+            content["meters"].values(), self, account_id=account_id
+        )
 
     async def async_get_meter_characteristics_per_residential_object(
         self,
@@ -353,14 +367,38 @@ class EnergosbytPlusAPI:
     async def async_get_meter_characteristics(
         self,
     ) -> Tuple["MeterCharacteristics", ...]:
-        residential_holders = (
-            await self.async_get_meter_characteristics_per_residential_object()
-        )
+        content = await self.async_get_meter_characteristics_per_residential_object()
 
         return tuple(
             characteristics
-            for holder in residential_holders
-            for characteristics in holder.meters
+            for residential_holder in content
+            for characteristics in residential_holder.meters
+        )
+
+    async def async_push_indications(
+        self,
+        account_id: str,
+        meter_id: str,
+        *args: Union[int, float],
+        **kwargs: Union[int, float],
+    ) -> None:
+        if args:
+            for t_index, arg in enumerate(args, start=1):
+                assert (
+                    t_index not in kwargs
+                ), f"indication t{t_index} collision with named argument"
+                kwargs["t" + str(t_index)] = arg
+
+        assert kwargs, "at least one indication must be provided"
+
+        await self._async_api_post_request(
+            "/api/v1/meter/data/send",
+            authenticated=True,
+            json={
+                **kwargs,
+                "account_id": account_id,
+                "meter_id": meter_id,
+            },
         )
 
 
@@ -382,8 +420,10 @@ class _BaseDataItem:
         cls: Type[_TBaseDataItem],
         data: Iterable[Mapping[str, Any]],
         api: Optional[EnergosbytPlusAPI] = None,
+        **kwargs,
     ) -> Tuple[_TBaseDataItem, ...]:
-        return tuple(cls.de_json(item, api) for item in data)
+        # noinspection PyArgumentList
+        return tuple(cls.de_json(item, api, **kwargs) for item in data)
 
 
 @attr.s(kw_only=True, frozen=True, slots=True)
@@ -414,6 +454,7 @@ class MeterCharacteristics(_BaseDataItem):
         cls: Type[_TBaseDataItem],
         data: Mapping[Hashable, Any],
         api: Optional[EnergosbytPlusAPI] = None,
+        account_id: Optional[str] = None,
     ) -> _TBaseDataItem:
         return cls(
             api=api,
@@ -436,6 +477,10 @@ class MeterCharacteristics(_BaseDataItem):
             ),
         )
 
+    @property
+    def zone_ids(self) -> Tuple[str, ...]:
+        return tuple(zone.id for zone in self.zones)
+
 
 @attr.s(kw_only=True, frozen=True, slots=True)
 class ResidentialObjectMeters(_BaseDataItem):
@@ -448,6 +493,7 @@ class ResidentialObjectMeters(_BaseDataItem):
         cls: Type[_TBaseDataItem],
         data: Mapping[Hashable, Any],
         api: Optional[EnergosbytPlusAPI] = None,
+        **kwargs,
     ) -> _TBaseDataItem:
         return cls(
             api=api,
@@ -525,6 +571,61 @@ class Meter(_BaseDataItem):
     status: str = attr.ib()
     unit: str = attr.ib()
     zones: Tuple[MeterZone, ...] = attr.ib()
+    account_id: Optional[str] = attr.ib(default=None)  # this attribute is non-standard
+
+    @classmethod
+    def de_json(
+        cls: Type[_TBaseDataItem],
+        data: Mapping[Hashable, Any],
+        api: Optional[EnergosbytPlusAPI] = None,
+        account_id: Optional[str] = None,
+    ) -> _TBaseDataItem:
+        accepted = data["accepted"]
+        if accepted is None:
+            accepted_date = None
+            accepted_period = None
+        else:
+            accepted_date = convert_date(accepted["date"])
+            period_month_name, _, period_year = accepted["period"].partition(" ")
+            accepted_period = date(
+                year=int(period_year),
+                month=_CAPITAL_MONTH_NAMES.index(period_month_name),
+                day=1,
+            )
+
+        submitted = data["sent"]
+        if submitted is None:
+            submitted_date = None
+        else:
+            submitted_date = convert_date(submitted["date"])
+
+        current = data["current"]
+
+        return cls(
+            api=api,
+            id=data["id"],
+            number=data["number"],
+            service=Service.de_json(data["service"], api),
+            unit=data["unit"],
+            status=data["status"],
+            submission_period_start_day=int(data["period"]["from"]),
+            submission_period_end_day=int(data["period"]["to"]),
+            zones=tuple(
+                MeterZone(
+                    id=zone_index,
+                    accepted=None if accepted is None else float(accepted[zone_index]),
+                    accepted_date=accepted_date,
+                    accepted_period=accepted_period,
+                    submitted=None
+                    if submitted is None
+                    else float(submitted[zone_index]),
+                    submitted_date=submitted_date,
+                    current=None if current is None else float(current[zone_index]),
+                )
+                for zone_index in map("t%s".__mod__, range(1, int(data["zoning"]) + 1))
+            ),
+            account_id=account_id,
+        )
 
     @property
     def submission_period_start_date(self) -> date:
@@ -574,57 +675,56 @@ class Meter(_BaseDataItem):
 
         return (next_date - today).days
 
-    @classmethod
-    def de_json(
-        cls: Type[_TBaseDataItem],
-        data: Mapping[Hashable, Any],
-        api: Optional[EnergosbytPlusAPI] = None,
-    ) -> _TBaseDataItem:
-        accepted = data["accepted"]
-        if accepted is None:
-            accepted_date = None
-            accepted_period = None
-        else:
-            accepted_date = convert_date(accepted["date"])
-            period_month_name, _, period_year = accepted["period"].partition(" ")
-            accepted_period = date(
-                year=int(period_year),
-                month=_CAPITAL_MONTH_NAMES.index(period_month_name),
-                day=1,
+    @property
+    def zone_ids(self) -> Tuple[str, ...]:
+        return tuple(zone.id for zone in self.zones)
+
+    async def async_push_indications(
+        self,
+        *args: Union[int, float],
+        ignore_periods: bool = False,
+        ignore_values: bool = False,
+        **kwargs: Union[int, float],
+    ):
+        if self.api is None:
+            raise MethodRequiresAPI("bound api object is required to retrieve balance")
+
+        account_id = self.account_id
+        if account_id is None:
+            raise ObjectMissingData("account id not set for meter")
+
+        if args:
+            for t_index, arg in enumerate(args, start=1):
+                assert (
+                    t_index not in kwargs
+                ), f"indication t{t_index} collision with named argument"
+                kwargs["t" + str(t_index)] = arg
+
+        invalid_zone_ids = kwargs.keys() - self.zone_ids
+        if invalid_zone_ids:
+            raise EnergosbytPlusException(
+                f"invalid zones provided: {','.join(invalid_zone_ids)}"
             )
 
-        submitted = data["sent"]
-        if submitted is None:
-            submitted_date = None
-        else:
-            submitted_date = convert_date(submitted["date"])
+        if not (ignore_periods or self.is_submission_period_active):
+            raise EnergosbytPlusException("submission period is not active")
 
-        current = data["current"]
+        if not ignore_values:
+            for zone_id, zone_value in kwargs.items():
+                for zone in self.zones:
+                    if zone.id == zone_id:
+                        max_value = max(
+                            zone.current or 0.0,
+                            zone.submitted or 0.0,
+                            zone.accepted or 0.0,
+                        )
+                        if zone_value < max_value:
+                            raise EnergosbytPlusException(
+                                f"submitted value ({zone_value}) for zone {zone_id} "
+                                f"is less than zone max value ({max_value})"
+                            )
 
-        return cls(
-            api=api,
-            id=data["id"],
-            number=data["number"],
-            service=Service.de_json(data["service"], api),
-            unit=data["unit"],
-            status=data["status"],
-            submission_period_start_day=int(data["period"]["from"]),
-            submission_period_end_day=int(data["period"]["to"]),
-            zones=tuple(
-                MeterZone(
-                    id=zone_index,
-                    accepted=None if accepted is None else float(accepted[zone_index]),
-                    accepted_date=accepted_date,
-                    accepted_period=accepted_period,
-                    submitted=None
-                    if submitted is None
-                    else float(submitted[zone_index]),
-                    submitted_date=submitted_date,
-                    current=None if current is None else float(current[zone_index]),
-                )
-                for zone_index in map("t%s".__mod__, range(1, int(data["zoning"]) + 1))
-            ),
-        )
+        await self.api.async_push_indications(account_id, self.id, *args, **kwargs)
 
 
 @attr.s(kw_only=True, frozen=True, slots=True)
