@@ -243,6 +243,7 @@ async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEn
 
                     add_update_tasks.append(
                         entity_cls.async_refresh_account(
+                            hass,
                             current_entities,
                             account,
                             config_entry,
@@ -501,6 +502,7 @@ class EnergosbytPlusEntity(Entity):
     @abstractmethod
     async def async_refresh_account(
         cls: Type[_TEnergosbytPlusEntity],
+        hass: HomeAssistantType,
         entities: Dict[Hashable, _TEnergosbytPlusEntity],
         account: "Account",
         config_entry: ConfigEntry,

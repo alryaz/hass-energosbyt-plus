@@ -2,6 +2,7 @@
 Sensor for Energosbyt Plus cabinet.
 Retrieves indications regarding current state of accounts.
 """
+import asyncio
 import logging
 import re
 from abc import abstractmethod
@@ -31,7 +32,7 @@ from homeassistant.const import (
     STATE_OK,
     STATE_UNKNOWN,
 )
-from homeassistant.helpers.typing import ConfigType
+from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 from homeassistant.util import slugify
 
 from custom_components.energosbyt_plus._base import (
@@ -257,6 +258,7 @@ class EnergosbytPlusAccount(EnergosbytPlusEntity):
     @classmethod
     async def async_refresh_account(
         cls,
+        hass: HomeAssistantType,
         entities: Dict[Hashable, _TEnergosbytPlusEntity],
         account: "Account",
         config_entry: ConfigEntry,
@@ -296,6 +298,8 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     config_key: ClassVar[str] = CONF_METERS
 
+    _collective_update_futures: ClassVar[Dict[str, asyncio.Future]] = {}
+
     _supported_services: ClassVar[SupportedServicesType] = {
         None: {
             SERVICE_PUSH_INDICATIONS: SERVICE_PUSH_INDICATIONS_SCHEMA,
@@ -305,13 +309,13 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
     def __init__(
         self,
         *args,
-        characteristics: MeterCharacteristics,
-        meter: Optional[Meter] = None,
+        meter: Meter,
+        characteristics: Optional[MeterCharacteristics] = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self._characteristics = characteristics
         self._meter = meter
+        self._characteristics = characteristics
 
         self.entity_id: Optional[str] = f"sensor." + slugify(
             f"{self._account.number}_meter_{self.code}"
@@ -322,8 +326,33 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
     #################################################################################
 
     @classmethod
+    async def _collective_get_meter_data_for_account(
+        cls, hass: HomeAssistantType, account: Account
+    ):
+        account_id = account.id
+
+        try:
+            collective_update_future = cls._collective_update_futures[account_id]
+        except KeyError:
+            collective_update_future = hass.loop.create_future()
+            cls._collective_update_futures[account_id] = collective_update_future
+            try:
+                meters = await account.async_get_meters()
+            except BaseException as e:
+                collective_update_future.set_exception(e)
+                raise
+            else:
+                collective_update_future.set_result(meters)
+                return meters
+            finally:
+                del cls._collective_update_futures[account_id]
+        else:
+            return await collective_update_future
+
+    @classmethod
     async def async_refresh_account(
         cls,
+        hass: HomeAssistantType,
         entities: Dict[Hashable, Optional[_TEnergosbytPlusEntity]],
         account: "Account",
         config_entry: ConfigEntry,
@@ -331,32 +360,58 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
     ):
         new_meter_entities = []
 
-        if account.has_meters:
-            characteristics = await account.api.async_get_meter_characteristics()
+        residential_object_id = account.residential_object_id
+        if residential_object_id and account.has_meters:
+            meters, characteristics = await asyncio.gather(
+                cls._collective_get_meter_data_for_account(hass, account),
+                account.api.async_get_meter_characteristics(),
+            )
 
-            for characteristic in characteristics:
-                entity_key = (account.id, characteristic.id)
+            for meter in meters:
+                entity_key = (account.id, meter.id)
+
+                this_characteristic = None
+                for characteristic in characteristics:
+                    if characteristic.id == meter.id:
+                        this_characteristic = characteristic
+                        break
+
                 try:
                     entity = entities[entity_key]
                 except KeyError:
                     entity = cls(
                         account,
                         account_config,
-                        characteristics=characteristic,
+                        meter=meter,
+                        characteristics=this_characteristic,
                     )
                     entities[entity_key] = entity
                     new_meter_entities.append(entity)
                 else:
                     if entity.enabled:
-                        entity.async_schedule_update_ha_state(force_refresh=True)
+                        entity.async_schedule_update_ha_state(force_refresh=False)
+                    entity._meter = meter
+
+                if this_characteristic is None:
+                    _LOGGER.warning(
+                        f"Did not find characteristic for meter with ID: {meter.id}"
+                    )
+                else:
+                    entity._characteristics = this_characteristic
 
         return new_meter_entities if new_meter_entities else None
 
     async def async_update_internal(self) -> None:
-        meters = await self._account.async_get_meters()
-        meter_id = self._characteristics.id
+        """Internal update method.
 
-        for meter in meters:
+        For meters, this method is only called during entity updates.
+        """
+
+        meter_id = self._meter.id
+
+        for meter in await self._collective_get_meter_data_for_account(
+            self.hass, self._account
+        ):
             if meter.id == meter_id:
                 self.register_supported_services(meter)
                 self._meter = meter
@@ -370,12 +425,12 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     @property
     def code(self) -> str:
-        return self._characteristics.number
+        return self._meter.number
 
     @property
     def unique_id(self) -> str:
         """Return the unique ID of the sensor"""
-        return f"account_{self._account.id}_meter_{self._characteristics.id}"
+        return f"account_{self._account.id}_meter_{self._meter.id}"
 
     @property
     def state(self) -> str:
@@ -394,89 +449,89 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     @property
     def sensor_related_attributes(self) -> Optional[Mapping[str, Any]]:
-        characteristics = self._characteristics
-        dev_presentation_enabled = self.is_dev_presentation_enabled
-
-        attributes = {
-            ATTR_NAME: characteristics.name,
-            ATTR_METER_CODE: characteristics.number,
-        }
-
         meter = self._meter
-        if meter is not None:
-            service = meter.service
-            submit_period_active = meter.is_submission_period_active
+        characteristics = self._characteristics
 
-            attributes.update(
-                {
-                    ATTR_SERVICE_NAME: service.name,
-                    ATTR_SERVICE_TYPE: service.code,
-                    ATTR_SUBMIT_PERIOD_START: meter.submission_period_start_date.isoformat(),
-                    ATTR_SUBMIT_PERIOD_END: meter.submission_period_end_date.isoformat(),
-                    ATTR_SUBMIT_PERIOD_ACTIVE: submit_period_active,
-                    ATTR_REMAINING_DAYS: (
-                        meter.remaining_days_for_submission
-                        if submit_period_active
-                        else meter.remaining_days_until_submission
-                    ),
-                }
-            )
+        dev_presentation_enabled = self.is_dev_presentation_enabled
+        service = meter.service
+        submit_period_active = meter.is_submission_period_active
+
+        attributes = {}
+
+        if characteristics:
+            attributes[ATTR_NAME] = characteristics.name
 
         attributes.update(
             {
-                ATTR_MANUFACTURER: characteristics.manufacturer,
-                ATTR_BRAND: characteristics.brand,
-                ATTR_MODEL: characteristics.model,
-                ATTR_TYPE: characteristics.type,
-                ATTR_ACCURACY: characteristics.accuracy_class,
-                ATTR_DIGITS: characteristics.digits,
-                ATTR_INSTALL_DATE: characteristics.installation_date.isoformat(),
-                ATTR_LAST_CHECKUP_DATE: characteristics.last_checkup_date.isoformat(),
-                ATTR_NEXT_CHECKUP_DATE: characteristics.next_checkup_date.isoformat(),
+                ATTR_METER_CODE: characteristics.number,
+                ATTR_SERVICE_NAME: service.name,
+                ATTR_SERVICE_TYPE: service.code,
+                ATTR_SUBMIT_PERIOD_START: meter.submission_period_start_date.isoformat(),
+                ATTR_SUBMIT_PERIOD_END: meter.submission_period_end_date.isoformat(),
+                ATTR_SUBMIT_PERIOD_ACTIVE: submit_period_active,
+                ATTR_REMAINING_DAYS: (
+                    meter.remaining_days_for_submission
+                    if submit_period_active
+                    else meter.remaining_days_until_submission
+                ),
             }
         )
 
-        if meter is not None:
-            zones_data = meter.zones
-            if zones_data:
-                last_indications_date = zones_data[0].submitted_date
-                attributes[ATTR_LAST_INDICATIONS_DATE] = (
-                    None
-                    if last_indications_date is None
-                    else last_indications_date.isoformat()
-                )
+        zones_data = meter.zones
+        if zones_data:
+            last_indications_date = zones_data[0].submitted_date
+            attributes[ATTR_LAST_INDICATIONS_DATE] = (
+                None
+                if last_indications_date is None
+                else last_indications_date.isoformat()
+            )
 
-                # Add zone information
-                zones = []
-                for zone_data, zone_characteristics in zip(
-                    zones_data, characteristics.zones
-                ):
-                    zone_attributes = {
-                        ATTR_ID: zone_data.id,
-                        ATTR_SUBMITTED: zone_data.submitted,
-                        ATTR_ACCEPTED: zone_data.accepted,
-                        ATTR_TODAY: zone_data.today,
-                    }
+            # Add zone information
+            zones = []
+            for zone_data, zone_characteristics in zip(
+                zones_data, characteristics.zones
+            ):
+                zone_attributes = {
+                    ATTR_ID: zone_data.id,
+                    ATTR_SUBMITTED: zone_data.submitted,
+                    ATTR_ACCEPTED: zone_data.accepted,
+                    ATTR_TODAY: zone_data.today,
+                }
 
-                    current_indication = zone_data.current
-                    if current_indication is not None:
-                        zone_attributes[ATTR_CURRENT] = current_indication
+                current_indication = zone_data.current
+                if current_indication is not None:
+                    zone_attributes[ATTR_CURRENT] = current_indication
 
-                    if dev_presentation_enabled:
-                        dev_presentation_replacer(
-                            zone_attributes,
-                            (),
-                            (
-                                ATTR_SUBMITTED,
-                                ATTR_ACCEPTED,
-                                ATTR_TODAY,
-                                ATTR_CURRENT,
-                            ),
-                        )
+                if dev_presentation_enabled:
+                    dev_presentation_replacer(
+                        zone_attributes,
+                        (),
+                        (
+                            ATTR_SUBMITTED,
+                            ATTR_ACCEPTED,
+                            ATTR_TODAY,
+                            ATTR_CURRENT,
+                        ),
+                    )
 
-                    zones.append(zone_attributes)
+                zones.append(zone_attributes)
 
-                attributes[ATTR_ZONES] = zones
+            attributes[ATTR_ZONES] = zones
+
+        if characteristics:
+            attributes.update(
+                {
+                    ATTR_MANUFACTURER: characteristics.manufacturer,
+                    ATTR_BRAND: characteristics.brand,
+                    ATTR_MODEL: characteristics.model,
+                    ATTR_TYPE: characteristics.type,
+                    ATTR_ACCURACY: characteristics.accuracy_class,
+                    ATTR_DIGITS: characteristics.digits,
+                    ATTR_INSTALL_DATE: characteristics.installation_date.isoformat(),
+                    ATTR_LAST_CHECKUP_DATE: characteristics.last_checkup_date.isoformat(),
+                    ATTR_NEXT_CHECKUP_DATE: characteristics.next_checkup_date.isoformat(),
+                }
+            )
 
         if dev_presentation_enabled:
             dev_presentation_replacer(
@@ -496,22 +551,15 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
     @property
     def name_format_values(self) -> Mapping[str, Any]:
-        values = {
-            FORMAT_VAR_ID: self._characteristics.id,
+        meter = self._meter
+        service = meter.service
+        return {
+            FORMAT_VAR_ID: meter.id,
             FORMAT_VAR_TYPE_EN: "meter",
             FORMAT_VAR_TYPE_RU: "счётчик",
+            ATTR_SERVICE_NAME: service.name,
+            ATTR_SERVICE_TYPE: service.code,
         }
-
-        meter = self._meter
-        if meter is not None:
-            service = meter.service
-            values[ATTR_SERVICE_NAME] = service.name
-            values[ATTR_SERVICE_TYPE] = service.code
-        else:
-            values[ATTR_SERVICE_NAME] = "<?>"
-            values[ATTR_SERVICE_TYPE] = "<?>"
-
-        return values
 
     #################################################################################
     # Additional functionality
@@ -653,6 +701,8 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
 
 class _EnergosbytPlusChargesEntityBase(EnergosbytPlusEntity):
+    _collective_update_futures: ClassVar[Dict[str, asyncio.Future]] = {}
+
     @property
     def code(self) -> str:
         return self._account.number
@@ -679,6 +729,30 @@ class _EnergosbytPlusChargesEntityBase(EnergosbytPlusEntity):
         if self.is_dev_presentation_enabled:
             return ("-" if self._total_charges < 0.0 else "") + "#####.###"
         return round(self._total_charges, 2)
+
+    @classmethod
+    async def _collective_get_charges_data_for_account(
+        cls, hass: HomeAssistantType, account: Account
+    ):
+        account_id = account.id
+
+        try:
+            collective_update_future = cls._collective_update_futures[account_id]
+        except KeyError:
+            collective_update_future = hass.loop.create_future()
+            cls._collective_update_futures[account_id] = collective_update_future
+            try:
+                charges = await account.async_get_charges()
+            except BaseException as e:
+                collective_update_future.set_exception(e)
+                raise
+            else:
+                collective_update_future.set_result(charges)
+                return charges
+            finally:
+                del cls._collective_update_futures[account_id]
+        else:
+            return await collective_update_future
 
 
 class EnergosbytPlusCharges(_EnergosbytPlusChargesEntityBase):
@@ -775,6 +849,7 @@ class EnergosbytPlusCharges(_EnergosbytPlusChargesEntityBase):
     @classmethod
     async def async_refresh_account(
         cls: Type[_TEnergosbytPlusEntity],
+        hass: HomeAssistantType,
         entities: Dict[Hashable, _TEnergosbytPlusEntity],
         account: "Account",
         config_entry: ConfigEntry,
@@ -796,7 +871,9 @@ class EnergosbytPlusCharges(_EnergosbytPlusChargesEntityBase):
         return None
 
     async def async_update_internal(self) -> None:
-        self._charges = await self._account.async_get_charges()
+        self._charges = await self._collective_get_charges_data_for_account(
+            self.hass, self._account
+        )
 
 
 class EnergosbytPlusServiceCharges(_EnergosbytPlusChargesEntityBase):
@@ -899,13 +976,14 @@ class EnergosbytPlusServiceCharges(_EnergosbytPlusChargesEntityBase):
     @classmethod
     async def async_refresh_account(
         cls: Type[_TEnergosbytPlusEntity],
+        hass: HomeAssistantType,
         entities: Dict[Hashable, _TEnergosbytPlusEntity],
         account: "Account",
         config_entry: ConfigEntry,
         account_config: ConfigType,
     ) -> Optional[Iterable[_TEnergosbytPlusEntity]]:
         account_id = account.id
-        charges = await account.async_get_charges()
+        charges = await cls._collective_get_charges_data_for_account(hass, account)
         new_entities = []
 
         for service_charge in charges.services:
@@ -920,12 +998,15 @@ class EnergosbytPlusServiceCharges(_EnergosbytPlusChargesEntityBase):
 
             else:
                 if entity.enabled:
-                    entity.async_schedule_update_ha_state(force_refresh=True)
+                    entity.service_charge = service_charge
+                    entity.async_schedule_update_ha_state(force_refresh=False)
 
         return new_entities or None
 
     async def async_update_internal(self) -> None:
-        charges = await self._account.async_get_charges()
+        charges = await self._collective_get_charges_data_for_account(
+            self.hass, self._account
+        )
         service_charge_id = self._service_charge.id
 
         for service_charge in charges.services:

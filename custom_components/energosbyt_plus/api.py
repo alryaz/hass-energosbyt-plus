@@ -448,13 +448,16 @@ class MeterCharacteristics(_BaseDataItem):
     last_checkup_date: date = attr.ib()
     next_checkup_date: date = attr.ib()
     zones: Tuple[MeterCharacteristicsZone, ...] = attr.ib()
+    residential_object_id: Optional[str] = attr.ib(
+        default=None
+    )  # this attribute is non-standard
 
     @classmethod
     def de_json(
         cls: Type[_TBaseDataItem],
         data: Mapping[Hashable, Any],
         api: Optional[EnergosbytPlusAPI] = None,
-        account_id: Optional[str] = None,
+        residential_object_id: Optional[str] = None,
     ) -> _TBaseDataItem:
         return cls(
             api=api,
@@ -475,6 +478,7 @@ class MeterCharacteristics(_BaseDataItem):
                 MeterCharacteristicsZone(id="t%d" % (i,), unit=data["tariff%d" % (i,)])
                 for i in range(1, int(data["zoning"]) + 1)
             ),
+            residential_object_id=residential_object_id,
         )
 
     @property
@@ -493,13 +497,15 @@ class ResidentialObjectMeters(_BaseDataItem):
         cls: Type[_TBaseDataItem],
         data: Mapping[Hashable, Any],
         api: Optional[EnergosbytPlusAPI] = None,
-        **kwargs,
     ) -> _TBaseDataItem:
+        residential_object_id = data["id"]
         return cls(
             api=api,
-            id=data["id"],
+            id=residential_object_id,
             address=data["address"],
-            meters=MeterCharacteristics.de_json_list(data["meters"], api),
+            meters=MeterCharacteristics.de_json_list(
+                data["meters"], api, residential_object_id=residential_object_id
+            ),
         )
 
 
@@ -961,12 +967,16 @@ class Account(_BaseDataItem):
     services_text: str = attr.ib()
     services_count: int = attr.ib()
     owner_id: str = attr.ib()
+    residential_object_id: Optional[str] = attr.ib(
+        default=None
+    )  # this attribute is non-standard
 
     @classmethod
     def de_json(
         cls: Type[_TBaseDataItem],
         data: Mapping[Hashable, Any],
         api: Optional[EnergosbytPlusAPI] = None,
+        residential_object_id: Optional[str] = None,
     ) -> _TBaseDataItem:
         try:
             days_until_submission = int(data["metrics_until_value"])
@@ -987,6 +997,7 @@ class Account(_BaseDataItem):
             services_text=data["services"],
             services_count=int(data["services_count"]),
             owner_id=data["owner_id"],
+            residential_object_id=residential_object_id,
         )
 
     @property
@@ -1035,15 +1046,18 @@ class ResidentialObject(_BaseDataItem):
         data: Mapping[Hashable, Any],
         api: Optional[EnergosbytPlusAPI] = None,
     ) -> _TBaseDataItem:
+        residential_object_id = data["id"]
         return cls(
             api=api,
-            id=data["id"],
+            id=residential_object_id,
             address=data["address"],
             branch=ObjectBranch.de_json(data["branch"], api),
             is_object_head=data[
                 "is_object_head"
             ],  # @TODO: is this parameter interesting?
-            accounts=Account.de_json_list(data["accounts"], api),
+            accounts=Account.de_json_list(
+                data["accounts"], api, residential_object_id=residential_object_id
+            ),
         )
 
 
