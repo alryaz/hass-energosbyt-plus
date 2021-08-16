@@ -76,6 +76,7 @@ from custom_components.energosbyt_plus.const import (
     ATTR_INSTALL_DATE,
     ATTR_LAST_CHECKUP_DATE,
     ATTR_LAST_INDICATIONS_DATE,
+    ATTR_LAST_SUBMITTED,
     ATTR_MANUFACTURER,
     ATTR_METER_CODE,
     ATTR_MODEL,
@@ -493,14 +494,10 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
             ):
                 zone_attributes = {
                     ATTR_ID: zone_data.id,
+                    ATTR_LAST_SUBMITTED: zone_data.last_submitted,
                     ATTR_SUBMITTED: zone_data.submitted,
                     ATTR_ACCEPTED: zone_data.accepted,
-                    ATTR_TODAY: zone_data.today,
                 }
-
-                current_indication = zone_data.current
-                if current_indication is not None:
-                    zone_attributes[ATTR_CURRENT] = current_indication
 
                 if dev_presentation_enabled:
                     dev_presentation_replacer(
@@ -509,8 +506,7 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
                         (
                             ATTR_SUBMITTED,
                             ATTR_ACCEPTED,
-                            ATTR_TODAY,
-                            ATTR_CURRENT,
+                            ATTR_LAST_SUBMITTED,
                         ),
                     )
 
