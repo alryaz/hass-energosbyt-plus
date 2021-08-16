@@ -222,7 +222,7 @@ service: energosbyt_plus.push_indications
 data:
   indications: "123, 456, 789"
 target:
-  entity: sensor.1243145122_meter_123456789
+  entity_id: sensor.1243145122_meter_123456789
 ```
 
 ... или, с помощью именованного массива:
@@ -235,7 +235,7 @@ data:
     t2: 456
     t3: 789
 target:
-  entity: sensor.1243145122_meter_123456789
+  entity_id: sensor.1243145122_meter_123456789
 ```
 
 ... или, с помощью списка:
@@ -245,7 +245,7 @@ service: energosbyt_plus.calculate_indications
 data:
   indications: [123, 456, 789]
 target:
-  entity: sensor.1243145122_meter_123456789
+  entity_id: sensor.1243145122_meter_123456789
 ```
 
 ##### 2. Форсированная передача показаний
@@ -265,7 +265,7 @@ data_template:
   ignore_values: true
   ignore_periods: true
 target:
-  entity: sensor.1243145122_meter_123456789
+  entity_id: sensor.1243145122_meter_123456789
 ```
 
 ##### 3. Сложение показаний
@@ -285,5 +285,5 @@ data_template:
   indications: [123, 456, 789]
   incremental: true
 target:
-  entity: sensor.1243145122_meter_123456789
+  entity_id: sensor.1243145122_meter_123456789
 ```
