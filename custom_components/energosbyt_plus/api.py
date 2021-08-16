@@ -590,7 +590,7 @@ class Meter(_BaseDataItem):
             )
 
         last_submitted = data["sent"]
-        if submitted is None:
+        if last_submitted is None:
             last_submitted_date = None
         else:
             last_submitted_date = convert_date(submitted["date"])
