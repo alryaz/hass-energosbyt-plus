@@ -262,7 +262,7 @@ target:
 service: energosbyt_plus.calculate_indications
 data_template:
   indications: [123, 456, 789]
-  ignore_values: true
+  ignore_indications: true
   ignore_periods: true
 target:
   entity_id: sensor.1243145122_meter_123456789
