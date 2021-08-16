@@ -533,21 +533,11 @@ class Service(_BaseDataItem):
 class MeterZone:
     id: str = attr.ib()
     accepted: Optional[float] = attr.ib()
+    last_submitted: Optional[float] = attr.ib()
     submitted: Optional[float] = attr.ib()
-    current: Optional[float] = attr.ib()
     accepted_date: Optional[date] = attr.ib()
     accepted_period: Optional[date] = attr.ib()
-    submitted_date: Optional[date] = attr.ib()
-
-    @property
-    def today(self) -> Optional[float]:
-        if (  # @TODO: quite verbose
-            self.submitted is None
-            or self.submitted_date is None
-            or self.submitted_date != date.today()
-        ):
-            return None
-        return self.submitted
+    last_submitted_date: Optional[date] = attr.ib()
 
 
 _CAPITAL_MONTH_NAMES = (
@@ -599,13 +589,13 @@ class Meter(_BaseDataItem):
                 day=1,
             )
 
-        submitted = data["sent"]
+        last_submitted = data["sent"]
         if submitted is None:
-            submitted_date = None
+            last_submitted_date = None
         else:
-            submitted_date = convert_date(submitted["date"])
+            last_submitted_date = convert_date(submitted["date"])
 
-        current = data["current"]
+        submitted = data["current"]
 
         return cls(
             api=api,
@@ -622,11 +612,17 @@ class Meter(_BaseDataItem):
                     accepted=None if accepted is None else float(accepted[zone_index]),
                     accepted_date=accepted_date,
                     accepted_period=accepted_period,
-                    submitted=None
-                    if submitted is None
-                    else float(submitted[zone_index]),
-                    submitted_date=submitted_date,
-                    current=None if current is None else float(current[zone_index]),
+                    last_submitted=(
+                        None
+                        if last_submitted is None
+                        else float(last_submitted[zone_index])
+                    ),
+                    last_submitted_date=last_submitted_date,
+                    submitted=(
+                        None
+                        if submitted is None
+                        else float(submitted[zone_index])
+                    ),
                 )
                 for zone_index in map("t%s".__mod__, range(1, int(data["zoning"]) + 1))
             ),
@@ -720,8 +716,8 @@ class Meter(_BaseDataItem):
                 for zone in self.zones:
                     if zone.id == zone_id:
                         max_value = max(
-                            zone.current or 0.0,
                             zone.submitted or 0.0,
+                            zone.last_submitted or 0.0,
                             zone.accepted or 0.0,
                         )
                         if zone_value < max_value:
