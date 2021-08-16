@@ -637,13 +637,16 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
         is_incremental = call_data[ATTR_INCREMENTAL]
 
         for zone_id in indications.keys():
+            zone_found = False
             for zone in meter_zones:
-                if zone == zone_id:
+                if zone.id == zone_id:
+                    zone_found = True
                     if is_incremental:
                         indications[zone_id] += zone.submitted or zone.accepted or 0.0
-                    continue
+                    break
 
-            raise ValueError(f"meter zone {zone_id} does not exist")
+            if not zone_found:
+                raise ValueError(f"meter zone {zone_id} does not exist")
 
         return indications
 
