@@ -480,7 +480,7 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
         zones_data = meter.zones
         if zones_data:
-            last_indications_date = zones_data[0].submitted_date
+            last_indications_date = zones_data[0].last_submitted_date
             attributes[ATTR_LAST_INDICATIONS_DATE] = (
                 None
                 if last_indications_date is None
