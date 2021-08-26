@@ -37,6 +37,7 @@ from homeassistant.const import (
     CONF_DEFAULT,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
+    EVENT_HOMEASSISTANT_START,
 )
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import Entity
@@ -144,7 +145,11 @@ async def async_register_update_delegator(
         if len(update_delegators) != len(SUPPORTED_PLATFORMS):
             return
 
-        await async_refresh_api_data(hass, config_entry)
+        async def _async_started_callback(*_):
+            _LOGGER.debug(f"Received start event for entry {entry_id}")
+            await async_refresh_api_data(hass, config_entry)
+
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_started_callback)
 
 
 async def async_refresh_api_data(hass: HomeAssistantType, config_entry: ConfigEntry):
