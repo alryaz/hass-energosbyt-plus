@@ -8,7 +8,7 @@ _ЛК &#xab;ЭнергосбыТ Плюс&#xbb;_ для _Home Assistant_
 >
 > EnergosbyT Plus personal cabinet information and status retrieval, with meter indications submission capabilities.
 > 
-> [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+> [![hacs_badge](https://img.shields.io/badge/HACS-Default-green.svg)](https://github.com/custom-components/hacs)
 > [![Лицензия](https://img.shields.io/badge/%D0%9B%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 > [![Поддержка](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B8%D0%B2%D0%B0%D0%B5%D1%82%D1%81%D1%8F%3F-%D0%B4%D0%B0-green.svg)](https://github.com/alryaz/hass-energosbyt-plus/graphs/commit-activity)
 >
@@ -50,10 +50,9 @@ _ЛК &#xab;ЭнергосбыТ Плюс&#xbb;_ для _Home Assistant_
 
 1. Установите
    HACS ([инструкция по установке на оф. сайте](https://hacs.xyz/docs/installation/installation/))
-2. Добавьте репозиторий в список дополнительных
-3. Найдите `EnergosbyT Plus` (`ЭнергосбыТ Плюс`) в поиске по интеграциям <sup>1</sup>
-4. Установите последнюю версию компонента, нажав на кнопку `Установить` (`Install`)
-5. Перезапустите Home Assistant
+1. Найдите `EnergosbyT Plus` (`ЭнергосбыТ Плюс`) в поиске по интеграциям <sup>1</sup>
+1. Установите последнюю версию компонента, нажав на кнопку `Установить` (`Install`)
+1. Перезапустите Home Assistant
 
 
 ### Вручную
