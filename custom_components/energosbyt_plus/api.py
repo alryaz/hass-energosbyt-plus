@@ -362,7 +362,12 @@ class EnergosbytPlusAPI:
             authenticated=True,
         )
 
-        return ResidentialObjectMeters.de_json_list(content["objects"], self)
+        meter_object_groups = content["objects"]
+
+        if isinstance(meter_object_groups, Mapping):
+            meter_object_groups = meter_object_groups.values()
+
+        return ResidentialObjectMeters.de_json_list(meter_object_groups, self)  
 
     async def async_get_meter_characteristics(
         self,
