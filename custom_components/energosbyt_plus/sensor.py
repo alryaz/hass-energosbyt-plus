@@ -97,7 +97,6 @@ from custom_components.energosbyt_plus.const import (
     ATTR_SUBMIT_PERIOD_END,
     ATTR_SUBMIT_PERIOD_START,
     ATTR_SUCCESS,
-    ATTR_TODAY,
     ATTR_TOTAL,
     ATTR_TYPE,
     ATTR_UNIT,
@@ -515,6 +514,10 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
             attributes[ATTR_ZONES] = zones
 
         if characteristics:
+            installation_date = characteristics.installation_date
+            last_checkup_date = characteristics.last_checkup_date
+            next_checkup_date = characteristics.next_checkup_date
+
             attributes.update(
                 {
                     ATTR_MANUFACTURER: characteristics.manufacturer,
@@ -523,9 +526,21 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
                     ATTR_TYPE: characteristics.type,
                     ATTR_ACCURACY: characteristics.accuracy_class,
                     ATTR_DIGITS: characteristics.digits,
-                    ATTR_INSTALL_DATE: characteristics.installation_date.isoformat(),
-                    ATTR_LAST_CHECKUP_DATE: characteristics.last_checkup_date.isoformat(),
-                    ATTR_NEXT_CHECKUP_DATE: characteristics.next_checkup_date.isoformat(),
+                    ATTR_INSTALL_DATE: (
+                        None
+                        if installation_date is None
+                        else installation_date.isoformat()
+                    ),
+                    ATTR_LAST_CHECKUP_DATE: (
+                        None
+                        if last_checkup_date is None
+                        else last_checkup_date.isoformat()
+                    ),
+                    ATTR_NEXT_CHECKUP_DATE: (
+                        None
+                        if next_checkup_date is None
+                        else next_checkup_date.isoformat()
+                    ),
                 }
             )
 

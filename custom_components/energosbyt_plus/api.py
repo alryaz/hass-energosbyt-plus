@@ -449,9 +449,9 @@ class MeterCharacteristics(_BaseDataItem):
     type: Optional[str] = attr.ib()
     accuracy_class: Optional[str] = attr.ib()
     digits: Optional[int] = attr.ib()
-    installation_date: date = attr.ib()
-    last_checkup_date: date = attr.ib()
-    next_checkup_date: date = attr.ib()
+    installation_date: Optional[date] = attr.ib()
+    last_checkup_date: Optional[date] = attr.ib()
+    next_checkup_date: Optional[date] = attr.ib()
     zones: Tuple[MeterCharacteristicsZone, ...] = attr.ib()
     residential_object_id: Optional[str] = attr.ib(
         default=None
@@ -476,9 +476,9 @@ class MeterCharacteristics(_BaseDataItem):
             type=dash_or_converter(data["type"], str),
             accuracy_class=dash_or_converter(data["accuracy_class"], str),
             digits=dash_or_converter(data["digits"], int),
-            installation_date=convert_date(data["installed_date"]),
-            last_checkup_date=convert_date(data["verification_date"]),
-            next_checkup_date=convert_date(data["verification_period"]),
+            installation_date=dash_or_converter(data["installed_date"], convert_date),
+            last_checkup_date=dash_or_converter(data["verification_date"], convert_date),
+            next_checkup_date=dash_or_converter(data["verification_period"], convert_date),
             zones=tuple(
                 MeterCharacteristicsZone(id="t%d" % (i,), unit=data["tariff%d" % (i,)])
                 for i in range(1, int(data["zoning"]) + 1)
