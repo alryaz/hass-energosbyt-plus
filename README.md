@@ -44,20 +44,11 @@ _ЛК &#xab;ЭнергосбыТ Плюс&#xbb;_ для _Home Assistant_
 
 ## Установка
 
-### Посредством HACS
-
-> **✔️️ Рекомендуемый метод**
-
 1. Установите
    HACS ([инструкция по установке на оф. сайте](https://hacs.xyz/docs/installation/installation/))
 1. Найдите `EnergosbyT Plus` (`ЭнергосбыТ Плюс`) в поиске по интеграциям <sup>1</sup>
 1. Установите последнюю версию компонента, нажав на кнопку `Установить` (`Install`)
 1. Перезапустите Home Assistant
-
-
-### Вручную
-
-> **⚠️ Не рекомендуется**
 
 ## Конфигурация компонента:
 - Вариант А: Через _Интеграции_ (в поиске - "ЭнергосбыТ Плюс" или "EnergosbyT Plus")
@@ -226,7 +217,7 @@ target:
 ... или, с помощью именованного массива:
 
 ```yaml
-service: energosbyt_plus.calculate_indications
+service: energosbyt_plus.push_indications
 data:
   indications:
     t1: 123
@@ -239,7 +230,7 @@ target:
 ... или, с помощью списка:
 
 ```yaml
-service: energosbyt_plus.calculate_indications
+service: energosbyt_plus.push_indications
 data:
   indications: [123, 456, 789]
 target:
@@ -257,7 +248,7 @@ target:
   отправлены<sup>1</sup>.
   
 ```yaml
-service: energosbyt_plus.calculate_indications
+service: energosbyt_plus.push_indications
 data_template:
   indications: [123, 456, 789]
   ignore_indications: true
@@ -278,7 +269,7 @@ target:
 а не _123_, _456_ и _789_. 
   
 ```yaml
-service: energosbyt_plus.calculate_indications
+service: energosbyt_plus.push_indications
 data_template:
   indications: [123, 456, 789]
   incremental: true
