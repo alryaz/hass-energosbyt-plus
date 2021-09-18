@@ -64,6 +64,7 @@ from custom_components.energosbyt_plus.const import (
     DATA_ENTITIES,
     DATA_FINAL_CONFIG,
     DATA_UPDATE_DELEGATORS,
+    DOMAIN,
     FORMAT_VAR_ACCOUNT_CODE,
     FORMAT_VAR_ACCOUNT_CODE_SHORT,
     FORMAT_VAR_ACCOUNT_ID,
@@ -335,6 +336,24 @@ class EnergosbytPlusEntity(Entity):
         self._account: Account = account
         self._account_config: ConfigType = account_config
         self._entity_updater = None
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        account_object = self._account
+        branch_code = account_object.api.branch_code
+
+        device_info = {
+            "name": f"№ {account_object.number}",
+            "identifiers": {(DOMAIN, f"{branch_code}__{account_object.id}")},
+            "manufacturer": "EnergosbyT.Plus",
+            "model": branch_code,
+        }
+
+        residential_object = account_object.residential_object
+        if residential_object is not None:
+            device_info["suggested_area"] = residential_object.address
+
+        return device_info
 
     @property
     def is_dev_presentation_enabled(self) -> bool:

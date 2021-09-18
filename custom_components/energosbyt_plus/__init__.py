@@ -268,17 +268,13 @@ async def async_setup_entry(
         residential_objects = await api_object.async_get_residential_objects()
 
     except EnergosbytPlusException as e:
-        _LOGGER.error(
-            log_prefix
-            + (
-                "Невозможно выполнить авторизацию"
-                if IS_IN_RUSSIA
-                else "Error authenticating"
-            )
-            + ": "
-            + repr(e)
-        )
-        raise ConfigEntryNotReady
+        desc_text = (
+            "Невозможно выполнить авторизацию"
+            if IS_IN_RUSSIA
+            else "Error authenticating"
+        ) + ": "
+        _LOGGER.error(log_prefix + desc_text + repr(e))
+        raise ConfigEntryNotReady(desc_text + str(e))
 
     accounts_count = sum(
         len(residential_object.accounts) for residential_object in residential_objects

@@ -11,7 +11,6 @@ from typing import (
     Iterable,
     Mapping,
     Optional,
-    Set,
     Tuple,
     Type,
     TypeVar,
@@ -147,6 +146,7 @@ class EnergosbytPlusAPI:
         sub_url: str,
         authenticated: bool = True,
         headers: Optional[Mapping[str, Any]] = None,
+        expected_status: int = 200,
         **kwargs,
     ) -> Any:
         request_counter = self._request_counter + 1
@@ -156,7 +156,17 @@ class EnergosbytPlusAPI:
         _LOGGER.debug(f"[{request_counter}] POST:{sub_url} ({kwargs})")
 
         async with self._session.post(self.BASE_LK_URL + sub_url, **kwargs) as response:
-            data = await response.json()
+            if response.status != expected_status:
+                raise EnergosbytPlusException(
+                    f"invalid response status ({response.status} != {expected_status})"
+                )
+
+            try:
+                data = await response.json()
+            except aiohttp.ContentTypeError:
+                raise EnergosbytPlusException(
+                    f"request failed (server did not provide a valid response)"
+                )
 
             _LOGGER.debug(f"[{request_counter}] R:{data}")
 
@@ -245,7 +255,7 @@ class EnergosbytPlusAPI:
 
         except BaseException as e:
             if attempt_different_login_type is False:
-                _LOGGER.exception(f"Error during authentication: {e}")
+                _LOGGER.error(f"Error during authentication: {e}")
                 raise EnergosbytPlusException(f"Error during authentication: {e}")
 
             _LOGGER.warning(
@@ -367,7 +377,7 @@ class EnergosbytPlusAPI:
         if isinstance(meter_object_groups, Mapping):
             meter_object_groups = meter_object_groups.values()
 
-        return ResidentialObjectMeters.de_json_list(meter_object_groups, self)  
+        return ResidentialObjectMeters.de_json_list(meter_object_groups, self)
 
     async def async_get_meter_characteristics(
         self,
@@ -477,8 +487,12 @@ class MeterCharacteristics(_BaseDataItem):
             accuracy_class=dash_or_converter(data["accuracy_class"], str),
             digits=dash_or_converter(data["digits"], int),
             installation_date=dash_or_converter(data["installed_date"], convert_date),
-            last_checkup_date=dash_or_converter(data["verification_date"], convert_date),
-            next_checkup_date=dash_or_converter(data["verification_period"], convert_date),
+            last_checkup_date=dash_or_converter(
+                data["verification_date"], convert_date
+            ),
+            next_checkup_date=dash_or_converter(
+                data["verification_period"], convert_date
+            ),
             zones=tuple(
                 MeterCharacteristicsZone(id="t%d" % (i,), unit=data["tariff%d" % (i,)])
                 for i in range(1, int(data["zoning"]) + 1)
@@ -624,9 +638,7 @@ class Meter(_BaseDataItem):
                     ),
                     last_submitted_date=last_submitted_date,
                     submitted=(
-                        None
-                        if submitted is None
-                        else float(submitted[zone_index])
+                        None if submitted is None else float(submitted[zone_index])
                     ),
                 )
                 for zone_index in map("t%s".__mod__, range(1, int(data["zoning"]) + 1))
@@ -968,16 +980,16 @@ class Account(_BaseDataItem):
     services_text: str = attr.ib()
     services_count: int = attr.ib()
     owner_id: str = attr.ib()
-    residential_object_id: Optional[str] = attr.ib(
-        default=None
-    )  # this attribute is non-standard
+
+    # this attribute is non-standard
+    residential_object: Optional["ResidentialObject"] = attr.ib(default=None)
 
     @classmethod
     def de_json(
         cls: Type[_TBaseDataItem],
         data: Mapping[Hashable, Any],
         api: Optional[EnergosbytPlusAPI] = None,
-        residential_object_id: Optional[str] = None,
+        residential_object: Optional["ResidentialObject"] = None,
     ) -> _TBaseDataItem:
         try:
             days_until_submission = int(data["metrics_until_value"])
@@ -998,7 +1010,7 @@ class Account(_BaseDataItem):
             services_text=data["services"],
             services_count=int(data["services_count"]),
             owner_id=data["owner_id"],
-            residential_object_id=residential_object_id,
+            residential_object=residential_object,
         )
 
     @property
@@ -1047,19 +1059,24 @@ class ResidentialObject(_BaseDataItem):
         data: Mapping[Hashable, Any],
         api: Optional[EnergosbytPlusAPI] = None,
     ) -> _TBaseDataItem:
-        residential_object_id = data["id"]
-        return cls(
+        obj = cls(
             api=api,
-            id=residential_object_id,
+            id=data["id"],
             address=data["address"],
             branch=ObjectBranch.de_json(data["branch"], api),
             is_object_head=data[
                 "is_object_head"
             ],  # @TODO: is this parameter interesting?
-            accounts=Account.de_json_list(
-                data["accounts"], api, residential_object_id=residential_object_id
-            ),
+            accounts=(),
         )
+
+        object.__setattr__(
+            obj,
+            "accounts",
+            tuple(Account.de_json_list(data["accounts"], api, residential_object=obj)),
+        )
+
+        return obj
 
 
 @attr.s(kw_only=True, frozen=True, slots=True)
