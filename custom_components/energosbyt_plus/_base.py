@@ -349,9 +349,9 @@ class EnergosbytPlusEntity(Entity):
             "model": branch_code,
         }
 
-        residential_object = account_object.residential_object
-        if residential_object is not None:
-            device_info["suggested_area"] = residential_object.address
+        # residential_object = account_object.residential_object
+        # if residential_object is not None:
+        #     device_info["suggested_area"] = residential_object.address
 
         return device_info
 
