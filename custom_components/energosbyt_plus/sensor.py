@@ -360,8 +360,11 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
     ):
         new_meter_entities = []
 
-        residential_object_id = account.residential_object_id
-        if residential_object_id and account.has_meters:
+        residential_object = account.residential_object
+
+        if residential_object and account.has_meters:
+            residential_object_id = residential_object.id
+            
             meters, characteristics = await asyncio.gather(
                 cls._collective_get_meter_data_for_account(hass, account),
                 account.api.async_get_meter_characteristics(),
