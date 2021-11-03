@@ -22,7 +22,6 @@ from typing import (
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_CODE,
@@ -81,7 +80,6 @@ from custom_components.energosbyt_plus.const import (
     ATTR_METER_CODE,
     ATTR_MODEL,
     ATTR_NEXT_CHECKUP_DATE,
-    ATTR_NOTIFICATION,
     ATTR_PAID,
     ATTR_PENALTY,
     ATTR_PERIOD,
@@ -129,24 +127,26 @@ INDICATIONS_SEQUENCE_SCHEMA = vol.All(
 )
 
 SERVICE_PUSH_INDICATIONS: Final = "push_indications"
-SERVICE_PUSH_INDICATIONS_SCHEMA: Final = {
-    vol.Required(ATTR_INDICATIONS): vol.Any(
-        vol.All(
-            cv.string,
-            lambda x: list(map(str.strip, x.split(","))),
-            INDICATIONS_SEQUENCE_SCHEMA,
-        ),
-        INDICATIONS_MAPPING_SCHEMA,
-        INDICATIONS_SEQUENCE_SCHEMA,
+SERVICE_PUSH_INDICATIONS_SCHEMA: Final = vol.All(
+    cv.make_entity_service_schema(
+        {
+            vol.Required(ATTR_INDICATIONS): vol.Any(
+                vol.All(
+                    cv.string,
+                    lambda x: list(map(str.strip, x.split(","))),
+                    INDICATIONS_SEQUENCE_SCHEMA,
+                ),
+                INDICATIONS_MAPPING_SCHEMA,
+                INDICATIONS_SEQUENCE_SCHEMA,
+            ),
+            vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
+            vol.Optional(ATTR_IGNORE_INDICATIONS, default=False): cv.boolean,
+            vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
+            vol.Optional("notification"): lambda x: x,
+        }
     ),
-    vol.Optional(ATTR_IGNORE_PERIOD, default=False): cv.boolean,
-    vol.Optional(ATTR_IGNORE_INDICATIONS, default=False): cv.boolean,
-    vol.Optional(ATTR_INCREMENTAL, default=False): cv.boolean,
-    vol.Optional(ATTR_NOTIFICATION, default=False): vol.Any(
-        cv.boolean,
-        persistent_notification.SCHEMA_SERVICE_CREATE,
-    ),
-}
+    cv.deprecated("notification"),
+)
 
 _SERVICE_SCHEMA_BASE_DATED: Final = {
     vol.Optional(ATTR_START, default=None): vol.Any(vol.Equal(None), cv.datetime),
@@ -581,8 +581,7 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
         call_data: Mapping[str, Any],
         event_data: Mapping[str, Any],
         event_id: str,
-        title: str,
-    ):
+    ) -> None:
         hass = self.hass
         comment = event_data.get(ATTR_COMMENT)
 
@@ -606,38 +605,13 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
             ATTR_CALL_PARAMS: dict(call_data),
             ATTR_SUCCESS: False,
             ATTR_INDICATIONS: None,
-            ATTR_COMMENT: None,
+            ATTR_COMMENT: message,
             **event_data,
         }
 
         _LOGGER.debug("Firing event '%s' with post_fields: %s" % (event_id, event_data))
 
         hass.bus.async_fire(event_type=event_id, event_data=event_data)
-
-        notification_content: Union[bool, Mapping[str, str]] = call_data[
-            ATTR_NOTIFICATION
-        ]
-
-        if notification_content is not False:
-            payload = {
-                persistent_notification.ATTR_TITLE: title + " - №" + meter_code,
-                persistent_notification.ATTR_NOTIFICATION_ID: event_id
-                + "_"
-                + meter_code,
-                persistent_notification.ATTR_MESSAGE: message,
-            }
-
-            if isinstance(notification_content, Mapping):
-                for key, value in notification_content.items():
-                    payload[key] = str(value).format_map(event_data)
-
-            hass.async_create_task(
-                hass.services.async_call(
-                    persistent_notification.DOMAIN,
-                    persistent_notification.SERVICE_CREATE,
-                    payload,
-                )
-            )
 
     @staticmethod
     def _get_real_indications(
@@ -708,7 +682,6 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
                 call_data,
                 event_data,
                 DOMAIN + "_" + SERVICE_PUSH_INDICATIONS,
-                "Передача показаний",
             )
 
             _LOGGER.info(self.log_prefix + "End handling indications submission")
