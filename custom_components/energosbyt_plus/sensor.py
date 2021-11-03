@@ -219,7 +219,7 @@ class EnergosbytPlusAccount(EnergosbytPlusEntity):
 
     @property
     def icon(self) -> str:
-        return "mdi:flash-circle"
+        return "mdi:lightning-bolt-circle"
 
     @property
     def unit_of_measurement(self) -> Optional[str]:
@@ -364,7 +364,7 @@ class EnergosbytPlusMeter(EnergosbytPlusEntity):
 
         if residential_object and account.has_meters:
             residential_object_id = residential_object.id
-            
+
             meters, characteristics = await asyncio.gather(
                 cls._collective_get_meter_data_for_account(hass, account),
                 account.api.async_get_meter_characteristics(),
