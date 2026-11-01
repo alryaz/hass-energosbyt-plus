@@ -17,7 +17,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers.entity_platform import EntityPlatform
-from homeassistant.helpers.typing import HomeAssistantType
+from homeassistant.core import HomeAssistant as HomeAssistantType
 
 from custom_components.energosbyt_plus.api import (
     EnergosbytPlusAPI,

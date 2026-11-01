@@ -22,7 +22,8 @@ from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.typing import ConfigType, HomeAssistantType
+from homeassistant.core import HomeAssistant as HomeAssistantType
+from homeassistant.helpers.typing import ConfigType
 
 from custom_components.energosbyt_plus._base import UpdateDelegatorsDataType
 from custom_components.energosbyt_plus._schema import CONFIG_ENTRY_SCHEMA
@@ -308,13 +309,10 @@ async def async_setup_entry(
     hass.data.setdefault(DATA_UPDATE_DELEGATORS, {})[entry_id] = {}
 
     # Forward entry setup to sensor platform
-    for domain in (SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN):
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(
-                config_entry,
-                domain,
-            )
-        )
+    await hass.config_entries.async_forward_entry_setups(
+        config_entry,
+        (SENSOR_DOMAIN, BINARY_SENSOR_DOMAIN),
+    )
 
     # Create options update listener
     update_listener = config_entry.add_update_listener(async_reload_entry)

@@ -41,7 +41,8 @@ from homeassistant.const import (
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.typing import ConfigType, HomeAssistantType, StateType
+from homeassistant.core import HomeAssistant as HomeAssistantType
+from homeassistant.helpers.typing import ConfigType, StateType
 from homeassistant.util import as_local, utcnow
 
 from custom_components.energosbyt_plus._util import (
@@ -384,7 +385,7 @@ class EnergosbytPlusEntity(Entity):
         return False
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the attribute(s) of the sensor"""
 
         attributes = dict(self.sensor_related_attributes or {})
