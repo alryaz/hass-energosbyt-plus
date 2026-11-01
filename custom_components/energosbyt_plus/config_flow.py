@@ -5,7 +5,6 @@ from datetime import timedelta
 from typing import Any, ClassVar, Dict, Final, Mapping, Optional, Sequence
 
 import voluptuous as vol
-from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import CONF_DEFAULT, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import config_validation as cv
@@ -37,7 +36,6 @@ class EnergosbytPlusConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Energosbyt Plus config entries."""
 
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
     CACHED_API_TYPE_NAMES: ClassVar[Optional[Dict[str, Any]]] = {}
 

@@ -20,7 +20,8 @@ from homeassistant.const import (
     STATE_ON,
     STATE_UNKNOWN,
 )
-from homeassistant.helpers.typing import ConfigType, HomeAssistantType, StateType
+from homeassistant.core import HomeAssistant as HomeAssistantType
+from homeassistant.helpers.typing import ConfigType, StateType
 from homeassistant.util import slugify
 
 from custom_components.energosbyt_plus._base import (
